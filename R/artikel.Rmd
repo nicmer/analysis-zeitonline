@@ -1,0 +1,501 @@
+---
+title: "Wahlprogramme zur Bundestagswahl / German Electoral Manifestos 2017"
+author: "Nicolas Merz"
+output: 
+   md_document:
+      variant: markdown_github
+---
+
+# Analysis of 2017 German electoral programs 
+
+This repository contains machine-readable versions of the 2017 manifestos of the six major German parties and an R script that performs various methods of automatic content analysis on these documents. Results of this analysis will be published by ZEIT online.
+
+To be able to run the analysis, you need a valid Manifesto Project API key. Register for free, to get an API key on: https://manifesto-project.wzb.eu/
+
+
+```{r setup, include=FALSE}
+### render with render("R/artikel.Rmd", output_file = "../README.md")
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readtext)
+library(tidytext)
+library(manifestoR)
+library(stringr)
+library(quanteda)
+library(xlsx)
+
+
+mp_setapikey(key.file="manifesto_apikey.txt")
+
+mp_use_corpus_version("2016-6")
+
+
+partynames <- tribble(
+  ~doc_id, ~partyabbrev,~party,~partycolor,~partyorder,
+  "union.txt","CDU/CSU",41521,"black",1,
+  "spd.txt","SPD",41320,"red",2,
+  "linke.txt","LINKE",41223,"purple",3,
+  "gruene.txt","GRÜNE",41113,"darkgreen",4,
+  "fdp.txt", "FDP",41420,"gold",5,
+  "afd.txt", "AfD",41953,"blue",6,
+  "luhmann_macht.txt","Luhmann",100,"grey",7,
+   "zeit-dossier.txt","Zeit Dossier",200,"grey",8,
+   "effi-briest.txt","Effi Briest",300,"grey",9
+)
+
+## paragraphs
+
+programs2017 <- readtext("../electoralprograms/*.txt", ignore_missing_files = FALSE, encoding="UTF-8") %>%
+  left_join(partynames) %>%
+   mutate(date=201709) %>%
+   as_data_frame()
+
+#mp_load_cache(file="corpus-cache")
+
+deold <- mp_corpus(countryname=="Germany" & date > 199000 & party != 41952) %>%
+   tidy() %>%
+   unnest_tokens(word,text,to_lower=FALSE) %>%
+   mutate(
+      party = ifelse(party==41111 | party == 41112,41113,party),
+         party = ifelse(party==41221 | party == 41222,41223,party)
+   ) %>%
+   left_join(partynames) %>% select(party,partyabbrev,date,word,manifesto_id,partycolor) %>%
+   rename(doc_id = manifesto_id)
+
+
+#mp_save_cache()
+
+
+```
+
+## Length
+
+```{r laenge, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+laenge_comparison <- tribble(
+   ~nwords,~partyabbrev,~partycolor,~date,
+   5000,"Zeit Dossier","grey","201709",
+   22000,"GG","grey","201709",
+   95000,"Effi Briest","grey","201709"
+)
+
+laenge <- programs2017 %>%
+   unnest_tokens(word,text,token="words") %>%
+   bind_rows(deold) %>%
+   group_by(partyabbrev,date) %>%
+   summarize(
+      nwords = n()
+   ) %>%
+   mutate(
+      date = as.character(date)
+   ) %>%
+   left_join(partynames) %>%
+   mutate(
+      now = as.factor(date == 201709),
+      Wahl = as.character(round(as.numeric(date)/100,0))
+   ) %>% filter(partyabbrev!="Luhmann")
+
+laenge$partyabbrev_order <- factor(laenge$partyabbrev, levels=c("CDU/CSU","SPD","LINKE","GRÜNE","FDP","AfD","Zeit Dossier","Effi Briest"))
+
+# ggplot(laenge %>% filter(date==201709),aes(partyabbrev_order,nwords)) +
+#    geom_bar(aes(fill=partyabbrev_order), stat="identity") +
+#    scale_fill_manual(values = c(partynames$partycolor,"grey","grey","grey"), guide=FALSE) 
+   
+
+ggplot(laenge %>% filter(party > 1000),aes(Wahl,nwords)) +
+   geom_bar(aes(fill=partyabbrev_order,alpha = now), stat="identity", position = "dodge") + 
+   scale_alpha_manual(values=c(0.5,1), guide=FALSE) + 
+   scale_fill_manual(values = partynames$partycolor, guide=FALSE) +
+   facet_wrap(~partyabbrev_order) +
+   theme(axis.text.x = element_text(angle=45)) + 
+   scale_y_continuous("Länge des Wahlprogramms (in Wörtern)")
+   
+laenge %>% filter(party > 1000) %>% as.data.frame() %>% write.xlsx(file = "analyse2017v1.xlsx",sheetName="laenge")
+
+```
+
+## Readability
+
+```{r lesbarkeit, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+replacement_char <- "XXXXX"
+no_sent_endings <- c("Nr\\.","bzw\\.","vgl\\.","Vgl\\.","z\\.B\\.","Abs\\.","Art\\.","u\\.a\\.","z\\.b\\.","Z\\.B\\.","S\\.","regex('(?<=[A-Z])\\.')")
+
+no_sent_ending_xxx <- str_replace_all(no_sent_endings,"(\\.)",replacement_char)                   
+replacement_list <- setNames(no_sent_ending_xxx,no_sent_endings)
+
+
+program_lines <- programs2017 %>%
+  filter(partyabbrev!="Effi Briest") %>%
+  unnest_tokens(lines,text,token="lines", to_lower = FALSE) %>%
+  mutate(corpus_line_id = row_number()) %>%
+  mutate(
+    heading_order = str_count(lines,"#"),
+    lines = ifelse(heading_order > 0, str_sub(lines,start = heading_order+2, end = -1),lines)
+  ) %>%
+  group_by(doc_id) %>%
+  arrange(doc_id,corpus_line_id) %>%
+  mutate(doc_line_id = row_number()) %>%
+  ungroup() %>%
+  left_join(partynames)
+
+## sentences
+
+sentences_lines <- program_lines %>%
+  mutate(
+    lines = str_replace_all(lines,replacement_list),
+    lines = str_replace_all(lines,"(?<=[A-Z])\\.",replacement_char),
+    lines = str_replace_all(lines,"(?<=[0-9]{1,2})\\.",replacement_char)
+  ) %>%
+  unnest_tokens(sentence, lines, token = "sentences",to_lower = FALSE) %>%
+  mutate(
+    sentence = str_replace_all(sentence,replacement_char,".")
+  ) %>%
+  group_by(doc_id) %>%
+  mutate(doc_sentence_id = row_number()) %>% 
+  ungroup() %>%
+  arrange(doc_id,doc_line_id,doc_sentence_id) %>%
+  mutate(corpus_sentence_id = row_number()) %>%
+  mutate(
+    heading = ifelse(heading_order > 0, sentence,NA),
+    heading = zoo::na.locf(heading)
+  ) %>%
+  left_join(program_lines %>% select(lines,corpus_line_id),by=c("corpus_line_id"="corpus_line_id")) %>%
+  rename(paragraph=lines)
+
+program_words <- sentences_lines %>%
+   filter(heading_order == 0) %>%
+   group_by(partyabbrev) %>%
+   unnest_tokens(output = word,input=sentence,token = "words") 
+   
+
+length_words <- program_words %>%
+   group_by(partyabbrev) %>%
+   mutate(
+      word_length = nchar(word),
+      nsyls = nsyllable(word)
+   ) %>% 
+   summarize(
+      mean_word = mean(word_length),
+      longer_six = mean(word_length > 6),
+      longer_sylls = mean(nsyls > 2, na.rm=TRUE)*100
+   ) %>%
+   ungroup()
+
+doc_stats <- program_words %>%
+   group_by(partyabbrev,corpus_sentence_id) %>%
+   summarize(
+      words_sentences = n()
+   ) %>%
+   group_by(partyabbrev) %>%
+   mutate(
+      longest_sent = words_sentences == max(words_sentences),
+      mean_sent = mean(words_sentences)
+   ) %>%
+   filter(longest_sent==TRUE) %>%
+   left_join(sentences_lines) %>%
+   mutate(sentence = str_replace(sentence,"^-","")) %>%
+   left_join(length_words) %>%
+   mutate(
+      lix = mean_sent + (longer_six * 100),
+      nws4 = 0.2656 * mean_sent + 0.2744*longer_sylls - 1.693
+   ) %>%
+   mutate(
+      partyf = factor(partyabbrev, levels=c("CDU/CSU","SPD","LINKE","GRÜNE","FDP","AfD","Luhmann","Zeit Dossier"))
+   )
+
+laenge$partyabbrev_order <- factor(laenge$partyabbrev, levels=c("CDU/CSU","SPD","LINKE","GRÜNE","FDP","AfD","Zeit Dossier","Effi Briest"))
+
+ggplot(doc_stats,aes(y=nws4,x=partyf)) +
+      geom_bar(stat="identity", aes(fill=partyf)) +
+      scale_fill_manual(values=c(partynames$partycolor), guide=FALSE) + 
+      scale_x_discrete("Wahlprogramme 2017") + 
+      scale_y_continuous("Schwierigkeit")
+
+ doc_stats %>% mutate(verstaendlichkeit = nws4) %>%
+    select(partyabbrev,sentence,mean_sent,mean_word,longer_sylls,verstaendlichkeit) %>%
+       as.data.frame() %>% write.xlsx(file = "analyse2017v1.xlsx",sheetName="verstaendlichkeit", append=TRUE) 
+
+```
+
+## Longest Sentences
+
+> `r doc_stats$sentence[doc_stats$partyabbrev == "SPD"]` 
+> (SPD Wahlprogramm 2017 - Abschnitt `r doc_stats$heading[doc_stats$partyabbrev == "SPD"]`)
+
+> `r doc_stats$sentence[doc_stats$partyabbrev == "CDU/CSU"]` 
+> (CDU/CSU Wahlprogramm 2017 - Abschnitt `r doc_stats$heading[doc_stats$partyabbrev == "CDU/CSU"]`)
+
+> `r doc_stats$sentence[doc_stats$partyabbrev == "LINKE"]` 
+> (LINKE Wahlprogramm 2017 - Abschnitt **`r doc_stats$heading[doc_stats$partyabbrev == "LINKE"]`**)
+
+> `r doc_stats$sentence[doc_stats$partyabbrev == "GRÜNE"]` 
+> (GRÜNE Wahlprogramm 2017 - Abschnitt `r doc_stats$heading[doc_stats$partyabbrev == "GRÜNE"]`)
+
+> `r doc_stats$sentence[doc_stats$partyabbrev == "FDP"]` 
+> (FDP Wahlprogramm 2017 - Abschnitt `r doc_stats$heading[doc_stats$partyabbrev == "FDP"]`)
+
+> `r doc_stats$sentence[doc_stats$partyabbrev == "AfD"]` 
+> (AfD Wahlprogramm 2017 - Abschnitt `r doc_stats$heading[doc_stats$partyabbrev == "AfD"]`)
+
+
+
+
+## Sentiment
+
+```{r sentiment, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(stringr)
+
+read_senti_scores <- function(filename) {
+
+ results <- read.delim(filename, header = FALSE, encoding="UTF-8") %>%
+   cbind(str_split_fixed(.$V3, "[,-]",50),stringsAsFactors = FALSE) %>%
+    mutate(
+       V1 = str_sub(str_match(V1,".*\\|"),1,-2),
+       nr = row_number()
+   ) %>%
+   select(-V3) %>%
+   mutate(nr = as.character(nr)) %>%
+   gather(wordstem,word,V1,1:48, -nr,-V2) %>%
+   select(word,V2) %>% rename(score=V2) %>%
+   filter(word != "") %>%
+   arrange(word)
+
+}
+
+
+positive <- read_senti_scores("SentiWS_v1.8c_Positive.txt")
+negative <- read_senti_scores("SentiWS_v1.8c_Negative.txt")
+
+sentis <- positive %>% bind_rows(negative)
+
+de_metadata <- mp_metadata(countryname=="Germany" & date > 200500 & party != 41952)
+de2013 <- mp_corpus(countryname=="Germany" & date > 200500 & party != 41952) %>%
+   tidy() %>% left_join(partynames) %>%
+   unnest_tokens(word,text,token="words")
+
+sentiment_scores <- programs2017 %>%
+   filter(party > 1000) %>% 
+   mutate(date=201709) %>%
+   unnest_tokens(word,text,token="words") %>%
+   bind_rows(deold) %>%
+   group_by(partyabbrev,date) %>%
+   mutate(
+      doc_length = n()
+   ) %>%
+   inner_join(sentis)
+
+extrem_sentiment <- sentiment_scores %>%
+   group_by(partyabbrev,date) %>%
+   count(word,sort=TRUE) %>%
+   left_join(sentis) %>%
+   left_join(sentiment_scores %>% group_by(partyabbrev,date) %>% summarize(doc_length=mean(doc_length))) %>%
+   mutate(
+      high_score = (n/doc_length)*score
+   ) %>%
+   group_by(partyabbrev,date) %>%
+   arrange(high_score)
+
+lowest_sentiment <- extrem_sentiment %>%
+   top_n(-3)
+
+top_sentiment <- extrem_sentiment %>%
+   top_n(3)
+
+sentiment_scores$partyabbrev_order <- factor(sentiment_scores$partyabbrev,
+                                             levels = c("AfD","FDP","GRÜNE","LINKE","SPD","CDU/CSU"))
+
+
+aggregate_sentiment <- sentiment_scores %>%
+   summarize(
+      sum_sentiment = sum(score),
+      mean_sentiment = mean(score),
+      senti_n = n(),
+      doclength = mean(doc_length)
+      #ratio = senti_n/doc_length
+   ) %>% left_join(partynames) %>%
+   left_join(de_metadata) %>%
+   ungroup() %>%
+   mutate(
+      partyabbrev = ifelse(partyabbrev=="LINKE","PDS/LINKE",partyabbrev),
+      partyf = as.factor(partyabbrev)
+   ) %>% group_by(partyabbrev)
+
+
+# ggplot(sentiment_scores,aes(x=score,y=partyabbrev_order)) +
+#    geom_jitter(aes(color=partyabbrev_order),size=0.3) +
+#    scale_color_manual(values=rev(partynames$partycolor), guide=FALSE) +
+#    scale_y_discrete("") +
+#    scale_x_continuous("Sentiment") +
+#    facet_grid(~date)
+
+aggregate_sentiment$partyabbrev_order <- factor(aggregate_sentiment$partyabbrev,
+                                             levels = c("AfD","FDP","GRÜNE","PDS/LINKE","SPD","CDU/CSU"))
+
+
+ggplot(aggregate_sentiment,aes(y=sum_sentiment/doclength,x=partyabbrev_order)) +
+      geom_bar(stat="identity", aes(fill=partyabbrev_order)) +
+      scale_fill_manual(values=rev(partynames$partycolor[1:6]), guide=FALSE) +
+      coord_flip() +
+      scale_x_discrete("Wahlprogramme 2017") +
+      scale_y_continuous("Durchschnittliches Sentiment") +
+      facet_wrap(~round(date/100))
+
+aggregate_sentiment %>% 
+   mutate(sentiment=sum_sentiment/doclength) %>%
+   select(partyabbrev,date,sentiment) %>%
+   as.data.frame() %>% write.xlsx(file = "analyse2017v1.xlsx",sheetName="sentiment", append=TRUE) 
+
+```
+
+
+## Text similarity
+
+
+```{r textreuse, message=FALSE, warning=FALSE, include=FALSE}
+library(textreuse)
+library(tm)
+
+tm_parties <- VCorpus(DirSource("../electoralprograms", encoding = "UTF-8"),readerControl = list(language = "de"))[c(1,3,4,5,7,8)] %>%
+   tm_map(removeWords,stopwords("german")) %>%
+   tm_map(stemDocument) %>%
+   tm_map(content_transformer(tolower)) %>%
+   tm_map(removePunctuation) %>%
+   tm_map(removeNumbers) %>%
+   tm_map(stripWhitespace) %>%
+   writeCorpus(path="../electoralprogramscleaned")
+
+comp_pairs <- TextReuseCorpus(dir="../electoralprogramscleaned", tokenizer = tokenize_words) %>%
+ pairwise_compare(jaccard_bag_similarity, directional=TRUE)
+
+pairs_long <- comp_pairs %>% as_data_frame() 
+pairs_long$id <- names(pairs_long)
+
+row.names(pairs_long) <- NULL
+
+pairs_longer <- pairs_long %>%
+   gather(key=doc_id,simil,"afd.txt","fdp.txt","gruene.txt","linke.txt","union.txt","spd.txt") %>%
+   left_join(partynames,by=("doc_id"="doc_id")) %>%
+   rename(party1 = partyabbrev) %>%
+   select(-doc_id,-party,-partycolor,-partyorder) %>%
+   rename(doc_id=id) %>%
+   left_join(partynames,by=("doc_id"="doc_id")) %>%
+   rename(party2 = partyabbrev) %>%
+   select(party1,party2,simil)
+```
+
+```{r simil-output, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(pairs_longer,aes(party1,party2)) +
+   geom_tile(aes(fill=simil))
+#align_local(textreusecorp[[7]],textreusecorp[[8]])
+#programs2017
+
+pairs_longer %>% as.data.frame() %>% write.xlsx(file = "analyse2017v1.xlsx",sheetName="aehnlichkeit", append=TRUE)
+```
+
+
+
+
+
+## Word frequencies (tf-idf)
+
+
+```{r tfidf, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+library(SnowballC)
+library(magrittr)
+library(wordcloud)
+
+remove_words <- tibble(word = c(tokenizers::stopwords(language="de"),"r","grün","innen","dass","afd","cdu","csu","grüne","linke","spd","fdp","freie","demokraten","vgl","kapitel","sozialdemokrat","sozialdemokratinn"))
+
+words_in_programs <- programs2017 %>%
+   filter(party > 1000) %>% 
+   unnest_tokens(output = word,input = text, token = "words",to_lower=TRUE) %>%
+   filter(str_detect(word, "[a-z]+")) %>% 
+   group_by(partyabbrev)
+
+total_words <- words_in_programs %>% 
+   summarize(total_words = n())
+   
+counted_words <- words_in_programs %>%
+anti_join(remove_words) %>%
+   mutate(
+      word_stem = wordStem(word, language="german"),
+      #word_stem = word
+   ) %>%
+   count(partyabbrev, word_stem) %>%
+   filter(!word_stem %in% remove_words$word)
+
+
+tf_idf_words <- counted_words %>%   
+   bind_tf_idf(term_col=word_stem, document_col = partyabbrev,n_col = n) %>%
+   group_by(partyabbrev) %>%
+   arrange(partyabbrev,-tf_idf) %>%
+   top_n(10) 
+   
+   
+
+#("mensch","menschen","wirtschaft","deutschland","arbeit","umwelt",
+
+filter_words <- c("frei","freiheit","sicher","sicherheit","gleich","gleichheit")
+
+word_freqs <- counted_words %>%
+   filter(word_stem %in% filter_words) %>%
+   left_join(total_words) %>%
+   mutate(share = n*100/total_words) %>%
+   select(partyabbrev,share,word_stem) %>%
+   spread(partyabbrev,share,total_words)
+
+print(tf_idf_words %>% filter(partyabbrev=="AfD"))
+print(tf_idf_words %>% filter(partyabbrev=="CDU/CSU"))
+print(tf_idf_words %>% filter(partyabbrev=="SPD"))
+print(tf_idf_words %>% filter(partyabbrev=="FDP"))
+print(tf_idf_words %>% filter(partyabbrev=="LINKE"))
+print(tf_idf_words %>% filter(partyabbrev=="GRÜNE"))
+# menschen
+# deutschland
+# freiheit
+# sicherheit
+# eu 
+
+ #  filter(n > 5) %>%
+   
+tf_idf_words %>% as.data.frame() %>% write.xlsx(file = "analyse2017v1.xlsx",sheetName="tfidf", append=TRUE) 
+
+#most_freq_words <- words_in_programs %>%
+#   arrange(partyabbrev,-n) %>%
+#   group_by(partyabbrev) %>%
+#   top_n(10) %>% print()
+
+
+```
+
+
+
+# Method
+
+### Length
+
+Number of words
+
+### Readability
+
+[Vierte Wiener Sachtextformel](wikipedia-link)
+
+### Sentiment
+
+[SentimentWortschatz](http://wortschatz.informatik.uni-leipzig.de/) 
+
+### Similarity
+
+Jaccard-Bag-Similarity
+
+### wordfrequencies
+
+tfidf
