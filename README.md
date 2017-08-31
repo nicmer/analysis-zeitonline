@@ -8,12 +8,12 @@ To be able to run the analysis, you need a valid Manifesto Project API key. Regi
 Length
 ------
 
-![](..\README_files/figure-markdown_github/laenge-1.png)
+![](README_files/figure-markdown_github/laenge-1.png)
 
 Readability
 -----------
 
-![](..\README_files/figure-markdown_github/lesbarkeit-1.png)
+![](README_files/figure-markdown_github/lesbarkeit-1.png)
 
 Longest Sentences
 -----------------
@@ -24,7 +24,7 @@ Longest Sentences
 
 > Deutschland hat wegen der beispiellosen Verbrechen der Deutschen an den Jüdinnen und Juden, wegen der Entfesselung des Zweiten Weltkrieges und den daraus resultierenden Verbrechen an den Völkern Europas – besonders massenhaft an den Völkern der Sowjetunion, an den Sinti und Roma, an politisch Andersdenkenden, behinderten Menschen und Homosexuellen – eine besondere Verantwortung und muss jeder Art von Menschenfeindlichkeit, Antisemitismus, Antiziganismus und Rassismus entgegentreten. (LINKE Wahlprogramm 2017 - Abschnitt **Rechte Gewalt stoppen: Antifaschismus ist gelebte Demokratie**)
 
-> (GRÃœNE Wahlprogramm 2017 - Abschnitt )
+> (GRÜNE Wahlprogramm 2017 - Abschnitt )
 
 > Als entscheidende Punkte im steuerrechtlichen Bereich in diesem Venture-Capital-Gesetz, sehen wir den Abbau der Substanzbesteuerung – wie etwa bei den Hinzurechnungsvorschriften in der Gewerbesteuer, eine transparente Besteuerung für Venture Capital-Gesellschaften, eine faire Besteuerung von Investoren, die sich von ihrer Beteiligung trennen, ein Ende der (steuerlichen) Diskriminierung von Eigenkapital gegenüber Fremdkapital, die steuerliche Anrechenbarkeit von Investitionen in Unternehmen, eine Vereinheitlichung der gesetzlichen Rahmenbedingungen mindestens innerhalb der EU, keine Einschränkungen bei Verlustvorträgen, die Bilanzierbarkeit von Investitionen in eigene Intellectual Property und die Liberalisierung bei den Kapitalsammelstellen, damit privates Anlagekapital stärker genutzt werden kann. (FDP Wahlprogramm 2017 - Abschnitt Bessere Bedingungen für Wagniskapital)
 
@@ -33,12 +33,12 @@ Longest Sentences
 Sentiment
 ---------
 
-![](..\README_files/figure-markdown_github/sentiment-1.png)
+![](README_files/figure-markdown_github/sentiment-1.png)
 
 Text similarity
 ---------------
 
-![](..\README_files/figure-markdown_github/simil-output-1.png)
+![](README_files/figure-markdown_github/simil-output-1.png)
 
 Word frequencies (tf-idf)
 -------------------------
